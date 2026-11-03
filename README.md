@@ -384,7 +384,7 @@ E2E test memakai **database PostgreSQL terpisah**:
 
 Database test memakai server PostgreSQL yang sama dengan `.env`; pastikan server sudah berjalan sebelum `npm test`.
 
-Hasil Tahap 2: **2 test suite, 18 test lulus**.
+Hasil Tahap 3: unit 2 suite (5 test), integration 1 suite (1 test), E2E 1 suite (15 test); total `npm test` 4 suite (21 test).
 
 Cakupan pengujian:
 
@@ -401,8 +401,34 @@ Cakupan pengujian:
   - slot `OCCUPIED` gagal diubah ke `MAINTENANCE` → 409, status slot tetap;
   - kendaraan dengan tiket `ACTIVE` gagal dihapus → 409.
 
+## Swagger / OpenAPI
+
+Setelah server berjalan, buka **`http://localhost:3000/docs`** untuk Swagger UI (semua endpoint terdokumentasi). Ekspor spesifikasi ke file:
+
+```bash
+npm run openapi:export   # menghasilkan openapi.yaml di root repo
+```
+
+## Menjalankan berbagai jenis pengujian
+
+```bash
+npm run test:unit         # unit test (service + fee, repository di-mock)
+npm run test:integration # integration test (service + database sungguhan)
+npm run test:e2e         # E2E via Supertest
+npm run test:cov         # test + coverage
+npm run test:newman      # Postman collection via Newman (server harus berjalan)
+```
+
+Jalankan Newman terhadap server lokal yang sudah di-seed:
+
+```bash
+npm run start:dev
+# terminal lain:
+npm run test:newman
+```
+
 ## Catatan Tahap 2
 
 - Skema dikelola sepenuhnya lewat migration; `synchronize` selalu `false`.
 - `version` pada `vehicles` tidak ditampilkan di body response, hanya dipakai untuk ETag.
-- Swagger UI dan `openapi.yaml` belum dibuat (Tahap 3).
+- Swagger UI tersedia di `/docs`; spesifikasi OpenAPI di `openapi.yaml`.
