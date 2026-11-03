@@ -17,9 +17,7 @@
             {
               "listen": "test",
               "script": {
-                "exec": [
-                  "pm.test('status 200', function () { pm.response.to.have.status(200); });"
-                ],
+                "exec": ["pm.test('status 200', function () { pm.response.to.have.status(200); });"],
                 "type": "text/javascript"
               }
             }
@@ -27,16 +25,17 @@
         },
         {
           "name": "Create vehicle",
-          "request": {
-            "method": "POST",
-            "url": "{{baseUrl}}/api/v1/vehicles",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\"plateNumber\":\"B 1001 XY\",\"type\":\"CAR\",\"ownerName\":\"Budi Santoso\"}"
-            }
-          },
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const n = Math.floor(Math.random() * 9000) + 1000;",
+                  "pm.environment.set('plateNumber', 'B ' + n + ' XY');"
+                ],
+                "type": "text/javascript"
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -48,7 +47,16 @@
                 "type": "text/javascript"
               }
             }
-          ]
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/vehicles",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"plateNumber\":\"{{plateNumber}}\",\"type\":\"CAR\",\"ownerName\":\"Budi Santoso\"}"
+            }
+          }
         },
         {
           "name": "Get vehicle",
@@ -61,7 +69,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('status 200', function () { pm.response.to.have.status(200); });"
+                  "pm.test('status 200', function () { pm.response.to.have.status(200); });",
+                  "pm.environment.set('etag', pm.response.headers.get('ETag'));"
                 ],
                 "type": "text/javascript"
               }
@@ -80,28 +89,23 @@
             {
               "listen": "test",
               "script": {
-                "exec": [
-                  "pm.test('status 428', function () { pm.response.to.have.status(428); });"
-                ],
+                "exec": ["pm.test('status 428', function () { pm.response.to.have.status(428); });"],
                 "type": "text/javascript"
               }
             }
           ]
         },
         {
-          "name": "Delete vehicle not found -> 404",
+          "name": "Get vehicle not found -> 404",
           "request": {
-            "method": "DELETE",
-            "url": "{{baseUrl}}/api/v1/vehicles/999999",
-            "header": [{ "key": "If-Match", "value": "\"v1\"" }]
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/vehicles/999999"
           },
           "event": [
             {
               "listen": "test",
               "script": {
-                "exec": [
-                  "pm.test('status 404', function () { pm.response.to.have.status(404); });"
-                ],
+                "exec": ["pm.test('status 404', function () { pm.response.to.have.status(404); });"],
                 "type": "text/javascript"
               }
             }
@@ -114,13 +118,17 @@
       "item": [
         {
           "name": "Create slot",
-          "request": {
-            "method": "POST",
-            "url": "{{baseUrl}}/api/v1/slots",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\"code\":\"A-01\",\"floor\":1,\"type\":\"CAR\"}" }
-          },
           "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const n = Math.floor(Math.random() * 9000) + 1000;",
+                  "pm.environment.set('slotCode', 'S-' + n);"
+                ],
+                "type": "text/javascript"
+              }
+            },
             {
               "listen": "test",
               "script": {
@@ -132,7 +140,16 @@
                 "type": "text/javascript"
               }
             }
-          ]
+          ],
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/slots",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"code\":\"{{slotCode}}\",\"floor\":1,\"type\":\"CAR\"}"
+            }
+          }
         },
         {
           "name": "List slots",
@@ -144,9 +161,7 @@
             {
               "listen": "test",
               "script": {
-                "exec": [
-                  "pm.test('status 200', function () { pm.response.to.have.status(200); });"
-                ],
+                "exec": ["pm.test('status 200', function () { pm.response.to.have.status(200); });"],
                 "type": "text/javascript"
               }
             }
@@ -183,26 +198,6 @@
           ]
         },
         {
-          "name": "Check-out",
-          "request": {
-            "method": "PATCH",
-            "url": "{{baseUrl}}/api/v1/tickets/{{ticketId}}",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": { "mode": "raw", "raw": "{\"status\":\"COMPLETED\"}" }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('status 200', function () { pm.response.to.have.status(200); });"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        },
-        {
           "name": "Duplicate check-in -> 409",
           "request": {
             "method": "POST",
@@ -217,9 +212,61 @@
             {
               "listen": "test",
               "script": {
+                "exec": ["pm.test('status 409', function () { pm.response.to.have.status(409); });"],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Check-out",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/api/v1/tickets/{{ticketId}}",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"status\":\"COMPLETED\"}" }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": ["pm.test('status 200', function () { pm.response.to.have.status(200); });"],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cleanup - get vehicle ETag",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/vehicles/{{vehicleId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
                 "exec": [
-                  "pm.test('status 409', function () { pm.response.to.have.status(409); });"
+                  "pm.test('status 200', function () { pm.response.to.have.status(200); });",
+                  "pm.environment.set('etag', pm.response.headers.get('ETag'));"
                 ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cleanup - delete vehicle",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/vehicles/{{vehicleId}}",
+            "header": [{ "key": "If-Match", "value": "{{etag}}" }]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": ["pm.test('status 204', function () { pm.response.to.have.status(204); });"],
                 "type": "text/javascript"
               }
             }
