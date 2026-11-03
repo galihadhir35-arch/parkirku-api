@@ -259,12 +259,12 @@ curl -X PATCH http://localhost:3000/api/v1/tickets/1 \
 ## Pengujian
 
 ```bash
-npm test              # 16 test (unit + e2e)
+npm test              # 17 test (unit + e2e)
 npm run test:e2e      # e2e dengan Supertest
 npm run test:cov      # test + coverage
 ```
 
-Hasil Tahap 1: **2 test suite, 16 test lulus**.
+Hasil Tahap 1: **2 test suite, 17 test lulus**.
 
 Cakupan pengujian:
 

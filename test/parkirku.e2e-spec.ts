@@ -329,6 +329,30 @@ describe('ParkirKu API (e2e)', () => {
     expect(store.tickets).toHaveLength(0);
   });
 
+  it('slot OCCUPIED tidak boleh diubah ke MAINTENANCE (409)', async () => {
+    const vehicle = await createVehicle().expect(201);
+    const slot = await createSlot().expect(201);
+
+    await http()
+      .post('/api/v1/tickets')
+      .send({ vehicleId: vehicle.body.id, slotId: slot.body.id })
+      .expect(201);
+
+    const response = await http()
+      .patch(`/api/v1/slots/${slot.body.id}`)
+      .send({ status: 'MAINTENANCE' })
+      .expect(409);
+
+    expect(response.body.type).toBe(
+      'https://api.parkirku.example/problems/slot-occupied',
+    );
+
+    const stillOccupied = await http()
+      .get(`/api/v1/slots/${slot.body.id}`)
+      .expect(200);
+    expect(stillOccupied.body.status).toBe('OCCUPIED');
+  });
+
   it('kendaraan dengan tiket ACTIVE tidak boleh dihapus (409)', async () => {
     const vehicle = await createVehicle().expect(201);
     const slot = await createSlot().expect(201);
