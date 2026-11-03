@@ -30,11 +30,11 @@ export class SlotsController {
   }
 
   @Post()
-  create(
+  async create(
     @Body() dto: CreateSlotDto,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const slot = this.slotsService.create(dto);
+    const slot = await this.slotsService.create(dto);
     response.header('Location', `/api/v1/slots/${slot.id}`);
 
     return slot;

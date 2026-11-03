@@ -30,11 +30,11 @@ export class TicketsController {
   }
 
   @Post()
-  create(
+  async create(
     @Body() dto: CreateTicketDto,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const ticket = this.ticketsService.create(dto);
+    const ticket = await this.ticketsService.create(dto);
     response.header('Location', `/api/v1/tickets/${ticket.id}`);
 
     return ticket;

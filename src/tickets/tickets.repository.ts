@@ -1,12 +1,13 @@
 import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { TicketStatus } from '../common/enums';
-import { InMemoryStore } from '../common/store/in-memory.store';
 import {
   TicketCursor,
   encodeTicketCursor,
 } from '../common/utils/cursor';
-import { SortRule, compareByRules } from '../common/utils/sort';
-import { Ticket } from './ticket.model';
+import { SortRule } from '../common/utils/sort';
+import { Ticket } from './ticket.entity';
 
 export interface TicketListFilter {
   status?: TicketStatus;
@@ -18,74 +19,88 @@ export interface TicketListFilter {
   cursor?: TicketCursor;
 }
 
+const SORT_COLUMNS: Record<string, string> = {
+  entryTime: 'ticket.entry_time',
+  fee: 'ticket.fee',
+  id: 'ticket.id',
+};
+
 @Injectable()
 export class TicketsRepository {
-  constructor(private readonly store: InMemoryStore) {}
+  constructor(
+    @InjectRepository(Ticket)
+    private readonly repository: Repository<Ticket>,
+  ) {}
 
-  create(data: {
-    vehicleId: number;
-    slotId: number;
-    entryTime: Date;
-  }): Ticket {
-    const ticket: Ticket = {
-      id: this.store.nextTicketId(),
-      vehicleId: data.vehicleId,
-      slotId: data.slotId,
-      entryTime: data.entryTime,
-      exitTime: null,
-      fee: null,
-      status: TicketStatus.ACTIVE,
-    };
-
-    this.store.tickets.push(ticket);
-
-    return ticket;
+  private repo(manager?: EntityManager): Repository<Ticket> {
+    return manager ? manager.getRepository(Ticket) : this.repository;
   }
 
-  findMany(filter: TicketListFilter): {
+  async create(
+    data: { vehicleId: number; slotId: number; entryTime: Date },
+    manager?: EntityManager,
+  ): Promise<Ticket> {
+    return this.repo(manager).save(
+      this.repo(manager).create({
+        ...data,
+        exitTime: null,
+        fee: null,
+        status: TicketStatus.ACTIVE,
+      }),
+    );
+  }
+
+  async findMany(filter: TicketListFilter): Promise<{
     items: Ticket[];
     nextCursor: string | null;
-  } {
-    let items = this.store.tickets.filter((ticket) => {
-      if (filter.status && ticket.status !== filter.status) {
-        return false;
-      }
-      if (
-        filter.vehicleId !== undefined &&
-        ticket.vehicleId !== filter.vehicleId
-      ) {
-        return false;
-      }
-      if (filter.from && ticket.entryTime < filter.from) {
-        return false;
-      }
-      if (filter.to && ticket.entryTime > filter.to) {
-        return false;
-      }
+  }> {
+    const query = this.repository.createQueryBuilder('ticket');
 
-      return true;
-    });
+    if (filter.status) {
+      query.andWhere('ticket.status = :status', { status: filter.status });
+    }
+
+    if (filter.vehicleId !== undefined) {
+      query.andWhere('ticket.vehicle_id = :vehicleId', {
+        vehicleId: filter.vehicleId,
+      });
+    }
+
+    if (filter.from) {
+      query.andWhere('ticket.entry_time >= :from', { from: filter.from });
+    }
+
+    if (filter.to) {
+      query.andWhere('ticket.entry_time <= :to', { to: filter.to });
+    }
 
     if (filter.cursor) {
-      // Cursor memakai perbandingan pasangan (entry_time, id), sesuai kontrak.
-      items = items.filter(
-        (ticket) =>
-          ticket.entryTime.getTime() < filter.cursor!.entryTime.getTime() ||
-          (ticket.entryTime.getTime() ===
-            filter.cursor!.entryTime.getTime() &&
-            ticket.id < filter.cursor!.id),
+      // Perbandingan pasangan (entry_time, id) sesuai kontrak cursor.
+      query.andWhere(
+        '(ticket.entry_time, ticket.id) < (:entryTime, :cursorId)',
+        {
+          entryTime: filter.cursor.entryTime,
+          cursorId: filter.cursor.id,
+        },
       );
     }
 
-    items.sort((left, right) => compareByRules(left, right, filter.sort));
+    for (const rule of filter.sort) {
+      query.addOrderBy(
+        SORT_COLUMNS[rule.field] ?? 'ticket.id',
+        rule.direction === 'asc' ? 'ASC' : 'DESC',
+      );
+    }
 
-    const window = items.slice(0, filter.limit + 1);
+    query.limit(filter.limit + 1);
+
+    const window = await query.getMany();
     const hasMore = window.length > filter.limit;
-    const page = window.slice(0, filter.limit);
-    const last = page[page.length - 1];
+    const items = window.slice(0, filter.limit);
+    const last = items[items.length - 1];
 
     return {
-      items: page,
+      items,
       nextCursor:
         hasMore && last
           ? encodeTicketCursor(last.entryTime, last.id)
@@ -93,23 +108,40 @@ export class TicketsRepository {
     };
   }
 
-  findById(id: number): Ticket | undefined {
-    return this.store.tickets.find((ticket) => ticket.id === id);
+  async findById(id: number, manager?: EntityManager): Promise<Ticket | null> {
+    return this.repo(manager).findOne({ where: { id } });
   }
 
-  hasActiveTicketForVehicle(vehicleId: number): boolean {
-    return this.store.tickets.some(
-      (ticket) =>
-        ticket.vehicleId === vehicleId &&
-        ticket.status === TicketStatus.ACTIVE,
-    );
+  async findByIdForUpdate(
+    id: number,
+    manager: EntityManager,
+  ): Promise<Ticket | null> {
+    return manager
+      .getRepository(Ticket)
+      .createQueryBuilder('ticket')
+      .setLock('pessimistic_write')
+      .where('ticket.id = :id', { id })
+      .getOne();
   }
 
-  update(
+  async hasActiveTicketForVehicle(
+    vehicleId: number,
+    manager?: EntityManager,
+  ): Promise<boolean> {
+    const count = await this.repo(manager).count({
+      where: { vehicleId, status: TicketStatus.ACTIVE },
+    });
+
+    return count > 0;
+  }
+
+  async update(
     id: number,
     changes: Partial<Pick<Ticket, 'exitTime' | 'fee' | 'status'>>,
-  ): Ticket | undefined {
-    const ticket = this.findById(id);
+    manager?: EntityManager,
+  ): Promise<Ticket | undefined> {
+    const repo = this.repo(manager);
+    const ticket = await repo.findOne({ where: { id } });
 
     if (!ticket) {
       return undefined;
@@ -117,10 +149,6 @@ export class TicketsRepository {
 
     Object.assign(ticket, changes);
 
-    return ticket;
-  }
-
-  transaction<T>(work: () => T): T {
-    return this.store.transaction(work);
+    return repo.save(ticket);
   }
 }

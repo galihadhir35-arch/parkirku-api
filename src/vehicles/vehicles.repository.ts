@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { VehicleType } from '../common/enums';
-import { InMemoryStore } from '../common/store/in-memory.store';
-import { SortRule, compareByRules } from '../common/utils/sort';
-import { Vehicle } from './vehicle.model';
+import { SortRule } from '../common/utils/sort';
+import { Vehicle } from './vehicle.entity';
 
 export interface VehicleListFilter {
   type?: VehicleType;
@@ -12,104 +13,117 @@ export interface VehicleListFilter {
   take: number;
 }
 
+const SORT_COLUMNS: Record<string, string> = {
+  plateNumber: 'vehicle.plate_number',
+  createdAt: 'vehicle.created_at',
+  id: 'vehicle.id',
+};
+
 @Injectable()
 export class VehiclesRepository {
-  constructor(private readonly store: InMemoryStore) {}
+  constructor(
+    @InjectRepository(Vehicle)
+    private readonly repository: Repository<Vehicle>,
+  ) {}
 
-  create(data: {
-    plateNumber: string;
-    type: VehicleType;
-    ownerName: string;
-  }): Vehicle {
-    const vehicle: Vehicle = {
-      id: this.store.nextVehicleId(),
-      plateNumber: data.plateNumber,
-      type: data.type,
-      ownerName: data.ownerName,
-      createdAt: new Date(),
-      version: 1,
-    };
-
-    this.store.vehicles.push(vehicle);
-
-    return vehicle;
+  private repo(manager?: EntityManager): Repository<Vehicle> {
+    return manager ? manager.getRepository(Vehicle) : this.repository;
   }
 
-  findMany(filter: VehicleListFilter): {
-    items: Vehicle[];
-    totalItems: number;
-  } {
-    const keyword = filter.q?.toLowerCase();
-
-    const items = this.store.vehicles.filter((vehicle) => {
-      if (filter.type && vehicle.type !== filter.type) {
-        return false;
-      }
-
-      if (keyword) {
-        const matchesPlate = vehicle.plateNumber.toLowerCase().includes(keyword);
-        const matchesOwner = vehicle.ownerName.toLowerCase().includes(keyword);
-
-        if (!matchesPlate && !matchesOwner) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-
-    items.sort((left, right) => compareByRules(left, right, filter.sort));
-
-    return {
-      items: items.slice(filter.skip, filter.skip + filter.take),
-      totalItems: items.length,
-    };
+  async create(
+    data: { plateNumber: string; type: VehicleType; ownerName: string },
+    manager?: EntityManager,
+  ): Promise<Vehicle> {
+    return this.repo(manager).save(this.repo(manager).create(data));
   }
 
-  findById(id: number): Vehicle | undefined {
-    return this.store.vehicles.find((vehicle) => vehicle.id === id);
+  async findMany(
+    filter: VehicleListFilter,
+  ): Promise<{ items: Vehicle[]; totalItems: number }> {
+    const query = this.repository.createQueryBuilder('vehicle');
+
+    if (filter.type) {
+      query.andWhere('vehicle.type = :type', { type: filter.type });
+    }
+
+    if (filter.q) {
+      query.andWhere(
+        '(LOWER(vehicle.plate_number) LIKE :q OR LOWER(vehicle.owner_name) LIKE :q)',
+        { q: `%${filter.q.toLowerCase()}%` },
+      );
+    }
+
+    for (const rule of filter.sort) {
+      query.addOrderBy(
+        SORT_COLUMNS[rule.field] ?? 'vehicle.id',
+        rule.direction === 'asc' ? 'ASC' : 'DESC',
+      );
+    }
+
+    query.skip(filter.skip).take(filter.take);
+
+    const [items, totalItems] = await query.getManyAndCount();
+
+    return { items, totalItems };
   }
 
-  findByPlateNumber(
+  async findById(
+    id: number,
+    manager?: EntityManager,
+  ): Promise<Vehicle | null> {
+    return this.repo(manager).findOne({ where: { id } });
+  }
+
+  async findByIdForUpdate(
+    id: number,
+    manager: EntityManager,
+  ): Promise<Vehicle | null> {
+    return manager
+      .getRepository(Vehicle)
+      .createQueryBuilder('vehicle')
+      .setLock('pessimistic_write')
+      .where('vehicle.id = :id', { id })
+      .getOne();
+  }
+
+  async findByPlateNumber(
     plateNumber: string,
     excludeId?: number,
-  ): Vehicle | undefined {
-    const normalized = plateNumber.toUpperCase();
+    manager?: EntityManager,
+  ): Promise<Vehicle | null> {
+    const query = this.repo(manager)
+      .createQueryBuilder('vehicle')
+      .where('UPPER(vehicle.plate_number) = UPPER(:plateNumber)', {
+        plateNumber,
+      });
 
-    return this.store.vehicles.find(
-      (vehicle) =>
-        vehicle.plateNumber.toUpperCase() === normalized &&
-        vehicle.id !== excludeId,
-    );
+    if (excludeId !== undefined) {
+      query.andWhere('vehicle.id <> :excludeId', { excludeId });
+    }
+
+    return query.getOne();
   }
 
-  update(
+  async update(
     id: number,
     changes: Partial<Pick<Vehicle, 'plateNumber' | 'type' | 'ownerName'>>,
-  ): Vehicle | undefined {
-    const vehicle = this.findById(id);
+    manager?: EntityManager,
+  ): Promise<Vehicle | undefined> {
+    const repo = this.repo(manager);
+    const vehicle = await repo.findOne({ where: { id } });
 
     if (!vehicle) {
       return undefined;
     }
 
     Object.assign(vehicle, changes);
-    vehicle.version += 1;
 
-    return vehicle;
+    return repo.save(vehicle);
   }
 
-  delete(id: number): boolean {
-    const index = this.store.vehicles.findIndex(
-      (vehicle) => vehicle.id === id,
-    );
+  async delete(id: number, manager?: EntityManager): Promise<boolean> {
+    const result = await this.repo(manager).delete(id);
 
-    if (index === -1) {
-      return false;
-    }
-
-    this.store.vehicles.splice(index, 1);
-
-    return true;
+    return (result.affected ?? 0) > 0;
   }
 }

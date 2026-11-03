@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { EntityManager } from 'typeorm';
 import { SlotStatus } from '../common/enums';
 import {
   duplicateSlotCodeProblem,
@@ -10,7 +11,7 @@ import { parseSort } from '../common/utils/sort';
 import { CreateSlotDto } from './dto/create-slot.dto';
 import { PatchSlotDto } from './dto/patch-slot.dto';
 import { QuerySlotDto } from './dto/query-slot.dto';
-import { Slot } from './slot.model';
+import { Slot } from './slot.entity';
 import { SlotsRepository } from './slots.repository';
 
 const SLOT_SORT_FIELDS = ['code', 'floor'] as const;
@@ -19,9 +20,9 @@ const SLOT_SORT_FIELDS = ['code', 'floor'] as const;
 export class SlotsService {
   constructor(private readonly slotsRepository: SlotsRepository) {}
 
-  findAll(query: QuerySlotDto): OffsetPage<Slot> {
+  async findAll(query: QuerySlotDto): Promise<OffsetPage<Slot>> {
     const sort = parseSort(query.sort, SLOT_SORT_FIELDS, 'code');
-    const { items, totalItems } = this.slotsRepository.findMany({
+    const { items, totalItems } = await this.slotsRepository.findMany({
       status: query.status,
       type: query.type,
       floor: query.floor,
@@ -36,12 +37,12 @@ export class SlotsService {
     };
   }
 
-  findOne(id: number): Slot {
+  async findOne(id: number): Promise<Slot> {
     return this.findEntityOrThrow(id);
   }
 
-  create(dto: CreateSlotDto): Slot {
-    this.assertCodeAvailable(dto.code);
+  async create(dto: CreateSlotDto): Promise<Slot> {
+    await this.assertCodeAvailable(dto.code);
 
     return this.slotsRepository.create({
       code: dto.code,
@@ -50,11 +51,11 @@ export class SlotsService {
     });
   }
 
-  patch(id: number, dto: PatchSlotDto): Slot {
-    const slot = this.findEntityOrThrow(id);
+  async patch(id: number, dto: PatchSlotDto): Promise<Slot> {
+    const slot = await this.findEntityOrThrow(id);
 
     if (dto.code !== undefined) {
-      this.assertCodeAvailable(dto.code, id);
+      await this.assertCodeAvailable(dto.code, id);
     }
 
     if (
@@ -81,12 +82,32 @@ export class SlotsService {
       changes.status = dto.status;
     }
 
-    return this.slotsRepository.update(id, changes) ?? slot;
+    return (await this.slotsRepository.update(id, changes)) ?? slot;
   }
 
-  /** Dipakai TicketsService saat check-in/check-out. */
-  findEntityOrThrow(id: number): Slot {
-    const slot = this.slotsRepository.findById(id);
+  /** Dipakai TicketsService di dalam transaksi check-in/check-out. */
+  async findEntityOrThrow(
+    id: number,
+    manager?: EntityManager,
+  ): Promise<Slot> {
+    const slot = await this.slotsRepository.findById(id, manager);
+
+    if (!slot) {
+      throw notFoundProblem(`Slot dengan id ${id} tidak ditemukan.`);
+    }
+
+    return slot;
+  }
+
+  /**
+   * Mengunci baris slot (SELECT ... FOR UPDATE) saat check-in agar dua
+   * request bersamaan tidak memakai slot yang sama.
+   */
+  async findEntityForUpdateOrThrow(
+    id: number,
+    manager: EntityManager,
+  ): Promise<Slot> {
+    const slot = await this.slotsRepository.findByIdForUpdate(id, manager);
 
     if (!slot) {
       throw notFoundProblem(`Slot dengan id ${id} tidak ditemukan.`);
@@ -96,8 +117,16 @@ export class SlotsService {
   }
 
   /** Dipakai TicketsService di dalam transaksi check-in/check-out. */
-  updateStatus(id: number, status: SlotStatus): Slot {
-    const updated = this.slotsRepository.update(id, { status });
+  async updateStatus(
+    id: number,
+    status: SlotStatus,
+    manager?: EntityManager,
+  ): Promise<Slot> {
+    const updated = await this.slotsRepository.update(
+      id,
+      { status },
+      manager,
+    );
 
     if (!updated) {
       throw notFoundProblem(`Slot dengan id ${id} tidak ditemukan.`);
@@ -106,8 +135,11 @@ export class SlotsService {
     return updated;
   }
 
-  private assertCodeAvailable(code: string, excludeId?: number): void {
-    const existing = this.slotsRepository.findByCode(code, excludeId);
+  private async assertCodeAvailable(
+    code: string,
+    excludeId?: number,
+  ): Promise<void> {
+    const existing = await this.slotsRepository.findByCode(code, excludeId);
 
     if (existing) {
       throw duplicateSlotCodeProblem(code);

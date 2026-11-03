@@ -110,6 +110,28 @@ export function ticketAlreadyCompletedProblem(
   });
 }
 
+export function preconditionRequiredProblem(
+  detail = 'Header If-Match wajib dikirim untuk operasi ini.',
+): ProblemDetailsException {
+  return new ProblemDetailsException({
+    type: `${PROBLEM_BASE_URL}/precondition-required`,
+    title: 'Header If-Match wajib dikirim',
+    status: 428,
+    detail,
+  });
+}
+
+export function preconditionFailedProblem(
+  detail = 'Nilai If-Match tidak cocok dengan versi data saat ini.',
+): ProblemDetailsException {
+  return new ProblemDetailsException({
+    type: `${PROBLEM_BASE_URL}/precondition-failed`,
+    title: 'Precondition gagal',
+    status: 412,
+    detail,
+  });
+}
+
 export function internalServerProblem(): ProblemDetailsException {
   return new ProblemDetailsException({
     type: `${PROBLEM_BASE_URL}/internal-error`,

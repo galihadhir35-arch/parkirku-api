@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 import { SlotStatus, TicketStatus } from '../common/enums';
 import {
   invalidQueryProblem,
@@ -15,7 +17,7 @@ import { CheckoutTicketDto } from './dto/checkout-ticket.dto';
 import { CreateTicketDto } from './dto/create-ticket.dto';
 import { QueryTicketDto } from './dto/query-ticket.dto';
 import { calculateFee } from './ticket-fee';
-import { Ticket } from './ticket.model';
+import { Ticket } from './ticket.entity';
 import { TicketsRepository } from './tickets.repository';
 
 export interface TicketResponse {
@@ -44,9 +46,10 @@ export class TicketsService {
     private readonly ticketsRepository: TicketsRepository,
     private readonly vehiclesService: VehiclesService,
     private readonly slotsService: SlotsService,
+    @InjectDataSource() private readonly dataSource: DataSource,
   ) {}
 
-  findAll(query: QueryTicketDto): CursorPage<TicketResponse> {
+  async findAll(query: QueryTicketDto): Promise<CursorPage<TicketResponse>> {
     if (query.cursor !== undefined && query.sort !== undefined) {
       throw invalidQueryProblem(
         'Parameter sort tidak dapat digabung dengan cursor.',
@@ -69,7 +72,7 @@ export class TicketsService {
         ]
       : parseSort(query.sort, TICKET_SORT_FIELDS, '-entryTime');
 
-    const { items, nextCursor } = this.ticketsRepository.findMany({
+    const { items, nextCursor } = await this.ticketsRepository.findMany({
       status: query.status,
       vehicleId: query.vehicleId,
       from,
@@ -85,85 +88,125 @@ export class TicketsService {
     };
   }
 
-  findOne(id: number): TicketResponse {
-    return this.toResponse(this.getOrThrow(id));
+  async findOne(id: number): Promise<TicketResponse> {
+    return this.toResponse(await this.getOrThrow(id));
   }
 
-  /** Check-in: membuat tiket ACTIVE + mengubah slot menjadi OCCUPIED. */
-  create(dto: CreateTicketDto): TicketResponse {
-    const vehicle = this.vehiclesService.findEntityOrThrow(dto.vehicleId);
+  /**
+   * Check-in dalam satu transaksi:
+   * kunci baris slot, buat tiket ACTIVE, ubah slot menjadi OCCUPIED.
+   */
+  async create(dto: CreateTicketDto): Promise<TicketResponse> {
+    const vehicle = await this.vehiclesService.findEntityOrThrow(dto.vehicleId);
 
-    if (this.ticketsRepository.hasActiveTicketForVehicle(vehicle.id)) {
-      throw vehicleInUseProblem(
-        `Kendaraan dengan plat nomor ${vehicle.plateNumber} masih memiliki tiket ACTIVE.`,
+    return this.dataSource.transaction(async (manager) => {
+      const slot = await this.slotsService.findEntityForUpdateOrThrow(
+        dto.slotId,
+        manager,
       );
-    }
 
-    const slot = this.slotsService.findEntityOrThrow(dto.slotId);
+      if (
+        await this.ticketsRepository.hasActiveTicketForVehicle(
+          vehicle.id,
+          manager,
+        )
+      ) {
+        throw vehicleInUseProblem(
+          `Kendaraan dengan plat nomor ${vehicle.plateNumber} masih memiliki tiket ACTIVE.`,
+        );
+      }
 
-    if (slot.type !== vehicle.type) {
-      throw slotOccupiedProblem(
-        `Slot ${slot.code} bertipe ${slot.type} tidak cocok dengan kendaraan bertipe ${vehicle.type}.`,
+      if (slot.type !== vehicle.type) {
+        throw slotOccupiedProblem(
+          `Slot ${slot.code} bertipe ${slot.type} tidak cocok dengan kendaraan bertipe ${vehicle.type}.`,
+        );
+      }
+
+      if (slot.status !== SlotStatus.AVAILABLE) {
+        throw slotOccupiedProblem(
+          `Slot ${slot.code} berstatus ${slot.status} sehingga tidak dapat digunakan.`,
+        );
+      }
+
+      const ticket = await this.ticketsRepository.create(
+        {
+          vehicleId: vehicle.id,
+          slotId: slot.id,
+          entryTime: new Date(),
+        },
+        manager,
       );
-    }
 
-    if (slot.status !== SlotStatus.AVAILABLE) {
-      throw slotOccupiedProblem(
-        `Slot ${slot.code} berstatus ${slot.status} sehingga tidak dapat digunakan.`,
+      await this.slotsService.updateStatus(
+        slot.id,
+        SlotStatus.OCCUPIED,
+        manager,
       );
-    }
 
-    const ticket = this.ticketsRepository.transaction(() => {
-      const created = this.ticketsRepository.create({
-        vehicleId: vehicle.id,
-        slotId: slot.id,
-        entryTime: new Date(),
-      });
-
-      this.slotsService.updateStatus(slot.id, SlotStatus.OCCUPIED);
-
-      return created;
+      return this.toResponse(ticket);
     });
-
-    return this.toResponse(ticket);
   }
 
-  /** Check-out: mengisi exitTime, fee, status COMPLETED, slot kembali AVAILABLE. */
-  checkout(id: number, _dto: CheckoutTicketDto): TicketResponse {
-    const ticket = this.getOrThrow(id);
+  /**
+   * Check-out dalam satu transaksi:
+   * isi exitTime/fee, ubah tiket menjadi COMPLETED, slot kembali AVAILABLE.
+   */
+  async checkout(
+    id: number,
+    _dto: CheckoutTicketDto,
+  ): Promise<TicketResponse> {
+    return this.dataSource.transaction(async (manager) => {
+      const ticket = await this.getOrThrowForUpdate(id, manager);
 
-    if (ticket.status !== TicketStatus.ACTIVE) {
-      throw ticketAlreadyCompletedProblem(
-        `Tiket dengan id ${id} sudah berstatus ${ticket.status}.`,
+      if (ticket.status !== TicketStatus.ACTIVE) {
+        throw ticketAlreadyCompletedProblem(
+          `Tiket dengan id ${id} sudah berstatus ${ticket.status}.`,
+        );
+      }
+
+      const vehicle = await this.vehiclesService.findEntityOrThrow(
+        ticket.vehicleId,
+        manager,
       );
-    }
 
-    const vehicle = this.vehiclesService.findEntityOrThrow(ticket.vehicleId);
-
-    const completed = this.ticketsRepository.transaction(() => {
       const exitTime = new Date();
       const fee = calculateFee(vehicle.type, ticket.entryTime, exitTime);
 
-      const updated = this.ticketsRepository.update(id, {
-        exitTime,
-        fee,
-        status: TicketStatus.COMPLETED,
-      });
+      const updated = await this.ticketsRepository.update(
+        id,
+        { exitTime, fee, status: TicketStatus.COMPLETED },
+        manager,
+      );
 
       if (!updated) {
         throw notFoundProblem(`Tiket dengan id ${id} tidak ditemukan.`);
       }
 
-      this.slotsService.updateStatus(ticket.slotId, SlotStatus.AVAILABLE);
+      await this.slotsService.updateStatus(
+        ticket.slotId,
+        SlotStatus.AVAILABLE,
+        manager,
+      );
 
-      return updated;
+      return this.toResponse(updated);
     });
-
-    return this.toResponse(completed);
   }
 
-  private getOrThrow(id: number): Ticket {
-    const ticket = this.ticketsRepository.findById(id);
+  private async getOrThrow(id: number): Promise<Ticket> {
+    const ticket = await this.ticketsRepository.findById(id);
+
+    if (!ticket) {
+      throw notFoundProblem(`Tiket dengan id ${id} tidak ditemukan.`);
+    }
+
+    return ticket;
+  }
+
+  private async getOrThrowForUpdate(
+    id: number,
+    manager: EntityManager,
+  ): Promise<Ticket> {
+    const ticket = await this.ticketsRepository.findByIdForUpdate(id, manager);
 
     if (!ticket) {
       throw notFoundProblem(`Tiket dengan id ${id} tidak ditemukan.`);
