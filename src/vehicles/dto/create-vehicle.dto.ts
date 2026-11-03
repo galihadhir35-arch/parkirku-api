@@ -1,3 +1,4 @@
+import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsEnum,
@@ -9,6 +10,7 @@ import {
 import { VehicleType } from '../../common/enums';
 
 export class CreateVehicleDto {
+  @ApiProperty({ description: 'Nomor plat kendaraan', example: 'B 1001 XY', maxLength: 12 })
   @Transform(({ value }) =>
     typeof value === 'string' ? value.trim().toUpperCase() : value,
   )
@@ -17,9 +19,11 @@ export class CreateVehicleDto {
   @MaxLength(12, { message: 'plateNumber maksimal 12 karakter' })
   plateNumber: string;
 
+  @ApiProperty({ description: 'Tipe kendaraan', enum: VehicleType, example: 'CAR' })
   @IsEnum(VehicleType, { message: 'type harus CAR atau MOTORCYCLE' })
   type: VehicleType;
 
+  @ApiProperty({ description: 'Nama pemilik', example: 'Budi Santoso', minLength: 2, maxLength: 100 })
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString({ message: 'ownerName harus berupa teks' })
   @IsNotEmpty({ message: 'ownerName tidak boleh kosong' })

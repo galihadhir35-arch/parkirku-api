@@ -1,0 +1,704 @@
+openapi: 3.0.0
+paths:
+  /vehicles:
+    get:
+      operationId: VehiclesController_findAll
+      parameters:
+        - name: page
+          required: false
+          in: query
+          description: Halaman (mulai 1)
+          schema:
+            default: 1
+            type: number
+        - name: limit
+          required: false
+          in: query
+          description: Jumlah per halaman (maks 100)
+          schema:
+            default: 10
+            type: number
+        - name: type
+          required: false
+          in: query
+          description: Filter tipe kendaraan
+          schema:
+            enum:
+              - CAR
+              - MOTORCYCLE
+            type: string
+        - name: q
+          required: false
+          in: query
+          description: Pencarian plat/nama
+          schema:
+            type: string
+        - name: sort
+          required: false
+          in: query
+          description: Sort, contoh -createdAt,plateNumber
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Daftar kendaraan
+        "400":
+          description: Query tidak valid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+      summary: Daftar kendaraan (pagination, filter, sort)
+      tags: &a1
+        - vehicles
+    post:
+      operationId: VehiclesController_create
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateVehicleDto"
+      responses:
+        "201":
+          description: Kendaraan dibuat
+        "400":
+          description: Validasi gagal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+        "409":
+          description: Plat duplikat
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+      summary: Daftarkan kendaraan baru
+      tags: *a1
+  /vehicles/{id}:
+    get:
+      operationId: VehiclesController_findOne
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Detail kendaraan
+        "304":
+          description: Tidak berubah (If-None-Match)
+        "404":
+          description: Tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+      summary: Detail kendaraan
+      tags: *a1
+    put:
+      operationId: VehiclesController_replace
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: number
+        - name: If-Match
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateVehicleDto"
+      responses:
+        "200":
+          description: Diperbarui
+        "400":
+          description: Validasi gagal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+        "404":
+          description: Tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+        "409":
+          description: Konflik
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+        "412":
+          description: If-Match tidak cocok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+        "428":
+          description: If-Match wajib
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+      summary: Ganti seluruh data kendaraan
+      tags: *a1
+    patch:
+      operationId: VehiclesController_patch
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: number
+        - name: If-Match
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchVehicleDto"
+      responses:
+        "200":
+          description: Diperbarui
+        "400":
+          description: Validasi gagal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+        "404":
+          description: Tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+        "409":
+          description: Konflik
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+        "412":
+          description: If-Match tidak cocok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+        "428":
+          description: If-Match wajib
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+      summary: Ubah sebagian data kendaraan
+      tags: *a1
+    delete:
+      operationId: VehiclesController_remove
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: number
+        - name: If-Match
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Dihapus
+        "404":
+          description: Tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+        "409":
+          description: Masih punya tiket ACTIVE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+        "412":
+          description: If-Match tidak cocok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+        "428":
+          description: If-Match wajib
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+      summary: Hapus kendaraan
+      tags: *a1
+  /tickets:
+    get:
+      operationId: TicketsController_findAll
+      parameters:
+        - name: status
+          required: false
+          in: query
+          description: Filter status
+          schema:
+            enum:
+              - ACTIVE
+              - COMPLETED
+            type: string
+        - name: vehicleId
+          required: false
+          in: query
+          description: Filter kendaraan
+          schema:
+            type: number
+        - name: from
+          required: false
+          in: query
+          description: Filter entry dari tanggal (ISO 8601)
+          schema:
+            type: string
+        - name: to
+          required: false
+          in: query
+          description: Filter entry sampai tanggal (ISO 8601)
+          schema:
+            type: string
+        - name: sort
+          required: false
+          in: query
+          description: Sort, contoh -entryTime
+          schema:
+            type: string
+        - name: limit
+          required: false
+          in: query
+          description: Jumlah per halaman
+          schema:
+            default: 10
+            type: number
+        - name: cursor
+          required: false
+          in: query
+          description: Cursor halaman berikutnya
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Daftar tiket
+        "400":
+          description: Query tidak valid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+      summary: Daftar tiket (cursor pagination, filter)
+      tags: &a2
+        - tickets
+    post:
+      operationId: TicketsController_create
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTicketDto"
+      responses:
+        "201":
+          description: Tiket dibuat
+        "400":
+          description: Validasi gagal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+        "404":
+          description: Kendaraan/slot tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+        "409":
+          description: Slot tidak tersedia / tipe tidak cocok / kendaraan sudah ACTIVE
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+      summary: Check-in kendaraan ke slot
+      tags: *a2
+  /tickets/{id}:
+    get:
+      operationId: TicketsController_findOne
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Detail tiket
+        "404":
+          description: Tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+      summary: Detail tiket
+      tags: *a2
+    patch:
+      operationId: TicketsController_checkout
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckoutTicketDto"
+      responses:
+        "200":
+          description: Tiket selesai, fee dihitung
+        "400":
+          description: Validasi gagal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+        "404":
+          description: Tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+        "409":
+          description: Tiket sudah selesai
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+      summary: Check-out tiket
+      tags: *a2
+  /slots:
+    get:
+      operationId: SlotsController_findAll
+      parameters:
+        - name: status
+          required: false
+          in: query
+          description: Filter status
+          schema:
+            enum:
+              - AVAILABLE
+              - OCCUPIED
+              - MAINTENANCE
+            type: string
+        - name: type
+          required: false
+          in: query
+          description: Filter tipe
+          schema:
+            enum:
+              - CAR
+              - MOTORCYCLE
+            type: string
+        - name: floor
+          required: false
+          in: query
+          description: Filter lantai
+          schema:
+            type: number
+        - name: sort
+          required: false
+          in: query
+          description: Sort, contoh code,-floor
+          schema:
+            type: string
+        - name: page
+          required: false
+          in: query
+          description: Halaman
+          schema:
+            default: 1
+            type: number
+        - name: limit
+          required: false
+          in: query
+          description: Jumlah per halaman
+          schema:
+            default: 10
+            type: number
+      responses:
+        "200":
+          description: Daftar slot
+        "400":
+          description: Query tidak valid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+      summary: Daftar slot (pagination, filter, sort)
+      tags: &a3
+        - slots
+    post:
+      operationId: SlotsController_create
+      parameters: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSlotDto"
+      responses:
+        "201":
+          description: Slot dibuat
+        "400":
+          description: Validasi gagal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+        "409":
+          description: Kode duplikat
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+      summary: Tambah slot
+      tags: *a3
+  /slots/{id}:
+    get:
+      operationId: SlotsController_findOne
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: number
+      responses:
+        "200":
+          description: Detail slot
+        "404":
+          description: Tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+      summary: Detail slot
+      tags: *a3
+    patch:
+      operationId: SlotsController_patch
+      parameters:
+        - name: id
+          required: true
+          in: path
+          schema:
+            type: number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatchSlotDto"
+      responses:
+        "200":
+          description: Diperbarui
+        "400":
+          description: Validasi gagal
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+        "404":
+          description: Tidak ditemukan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+        "409":
+          description: Konflik (mis. OCCUPIED ke MAINTENANCE)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetailsDto"
+      summary: Ubah status/data slot
+      tags: *a3
+info:
+  title: ParkirKu API
+  description: "REST API manajemen parkir: kendaraan, slot, dan tiket check-in/check-out."
+  version: 2.0.0
+  contact: {}
+tags:
+  - name: vehicles
+    description: Operasi kendaraan (dengan ETag/If-Match)
+  - name: slots
+    description: Operasi slot parkir
+  - name: tickets
+    description: Check-in dan check-out tiket
+servers: []
+components:
+  schemas:
+    ProblemDetailsDto:
+      type: object
+      properties:
+        type:
+          type: string
+          description: URI yang mengidentifikasi jenis masalah
+          example: https://api.parkirku.example/problems/not-found
+        title:
+          type: string
+          description: Judul singkat masalah
+          example: Data tidak ditemukan
+        status:
+          type: number
+          description: Kode status HTTP
+          example: 404
+        detail:
+          type: string
+          description: Penjelasan detail masalah
+          example: Kendaraan dengan id 999 tidak ditemukan.
+        instance:
+          type: string
+          description: Path endpoint yang dipanggil
+          example: /api/v1/vehicles/999
+        errors:
+          description: Daftar error validasi (hanya untuk 400 validation-error)
+          type: array
+          items:
+            type: object
+      required:
+        - type
+        - title
+        - status
+        - detail
+        - instance
+    CreateVehicleDto:
+      type: object
+      properties:
+        plateNumber:
+          type: string
+          description: Nomor plat kendaraan
+          example: B 1001 XY
+          maxLength: 12
+        type:
+          type: string
+          description: Tipe kendaraan
+          enum: &a4
+            - CAR
+            - MOTORCYCLE
+          example: CAR
+        ownerName:
+          type: string
+          description: Nama pemilik
+          example: Budi Santoso
+          minLength: 2
+          maxLength: 100
+      required:
+        - plateNumber
+        - type
+        - ownerName
+    UpdateVehicleDto:
+      type: object
+      properties:
+        plateNumber:
+          type: string
+          description: Nomor plat kendaraan
+          example: B 1001 XY
+          maxLength: 12
+        type:
+          type: string
+          description: Tipe kendaraan
+          enum: *a4
+          example: CAR
+        ownerName:
+          type: string
+          description: Nama pemilik
+          example: Budi Santoso
+          minLength: 2
+          maxLength: 100
+      required:
+        - plateNumber
+        - type
+        - ownerName
+    PatchVehicleDto:
+      type: object
+      properties: {}
+    CreateTicketDto:
+      type: object
+      properties:
+        vehicleId:
+          type: number
+          description: ID kendaraan
+          example: 1
+        slotId:
+          type: number
+          description: ID slot
+          example: 1
+      required:
+        - vehicleId
+        - slotId
+    CheckoutTicketDto:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - COMPLETED
+          example: COMPLETED
+      required:
+        - status
+    CreateSlotDto:
+      type: object
+      properties:
+        code:
+          type: string
+          description: Kode slot
+          example: A-01
+          maxLength: 20
+        floor:
+          type: number
+          description: Lantai slot
+          example: 1
+          minimum: 1
+        type:
+          type: string
+          description: Tipe slot
+          enum:
+            - CAR
+            - MOTORCYCLE
+          example: CAR
+      required:
+        - code
+        - floor
+        - type
+    PatchSlotDto:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - AVAILABLE
+            - OCCUPIED
+            - MAINTENANCE
+          description: Status slot
