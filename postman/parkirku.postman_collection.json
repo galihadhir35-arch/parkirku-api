@@ -1,0 +1,231 @@
+{
+  "info": {
+    "name": "ParkirKu API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Vehicles",
+      "item": [
+        {
+          "name": "List vehicles",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/vehicles?page=1&limit=10"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 200', function () { pm.response.to.have.status(200); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create vehicle",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/vehicles",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"plateNumber\":\"B 1001 XY\",\"type\":\"CAR\",\"ownerName\":\"Budi Santoso\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 201', function () { pm.response.to.have.status(201); });",
+                  "const json = pm.response.json();",
+                  "pm.environment.set('vehicleId', json.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get vehicle",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/vehicles/{{vehicleId}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 200', function () { pm.response.to.have.status(200); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Patch vehicle (missing If-Match -> 428)",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/api/v1/vehicles/{{vehicleId}}",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"ownerName\":\"Tanpa If-Match\"}" }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 428', function () { pm.response.to.have.status(428); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete vehicle not found -> 404",
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/api/v1/vehicles/999999",
+            "header": [{ "key": "If-Match", "value": "\"v1\"" }]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 404', function () { pm.response.to.have.status(404); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Slots",
+      "item": [
+        {
+          "name": "Create slot",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/slots",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"code\":\"A-01\",\"floor\":1,\"type\":\"CAR\"}" }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 201', function () { pm.response.to.have.status(201); });",
+                  "const json = pm.response.json();",
+                  "pm.environment.set('slotId', json.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "List slots",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/api/v1/slots"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 200', function () { pm.response.to.have.status(200); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Tickets",
+      "item": [
+        {
+          "name": "Check-in",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/tickets",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"vehicleId\":{{vehicleId}},\"slotId\":{{slotId}}}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 201', function () { pm.response.to.have.status(201); });",
+                  "const json = pm.response.json();",
+                  "pm.environment.set('ticketId', json.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Check-out",
+          "request": {
+            "method": "PATCH",
+            "url": "{{baseUrl}}/api/v1/tickets/{{ticketId}}",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"status\":\"COMPLETED\"}" }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 200', function () { pm.response.to.have.status(200); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Duplicate check-in -> 409",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/api/v1/tickets",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"vehicleId\":{{vehicleId}},\"slotId\":{{slotId}}}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 409', function () { pm.response.to.have.status(409); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
