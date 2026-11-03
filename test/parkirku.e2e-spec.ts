@@ -1,13 +1,13 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
+import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
-import { InMemoryStore } from '../src/common/store/in-memory.store';
 import { setupApp } from '../src/setup-app';
 
-describe('ParkirKu API (e2e)', () => {
+describe('ParkirKu API (e2e, PostgreSQL)', () => {
   let app: INestApplication;
-  let store: InMemoryStore;
+  let dataSource: DataSource;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -18,16 +18,31 @@ describe('ParkirKu API (e2e)', () => {
     setupApp(app);
     await app.init();
 
-    store = app.get(InMemoryStore);
+    dataSource = app.get(DataSource);
   });
 
   afterAll(async () => {
+    await truncateAll();
     await app.close();
   });
 
-  beforeEach(() => {
-    store.reset();
+  beforeEach(async () => {
+    await truncateAll();
   });
+
+  const truncateAll = async (): Promise<void> => {
+    await dataSource.query(
+      'TRUNCATE TABLE "tickets", "slots", "vehicles" RESTART IDENTITY CASCADE',
+    );
+  };
+
+  const countTickets = async (): Promise<number> => {
+    const rows = await dataSource.query(
+      'SELECT COUNT(*)::int AS count FROM "tickets"',
+    );
+
+    return rows[0].count as number;
+  };
 
   const http = () => request(app.getHttpServer());
 
@@ -115,16 +130,26 @@ describe('ParkirKu API (e2e)', () => {
     );
   });
 
-  it('GET /vehicles/{id} yang tidak ada menghasilkan 404', async () => {
-    const response = await http().get('/api/v1/vehicles/999').expect(404);
-
-    expect(response.body).toMatchObject({
+  it('GET/PATCH/DELETE /vehicles/{id} yang tidak ada menghasilkan 404', async () => {
+    const fetched = await http().get('/api/v1/vehicles/999').expect(404);
+    expect(fetched.body).toMatchObject({
       type: 'https://api.parkirku.example/problems/not-found',
       title: 'Data tidak ditemukan',
       status: 404,
       detail: 'Kendaraan dengan id 999 tidak ditemukan.',
       instance: '/api/v1/vehicles/999',
     });
+
+    await http()
+      .patch('/api/v1/vehicles/999')
+      .set('If-Match', '"v1"')
+      .send({ ownerName: 'Tidak Ada' })
+      .expect(404);
+
+    await http()
+      .delete('/api/v1/vehicles/999')
+      .set('If-Match', '"v1"')
+      .expect(404);
   });
 
   it('GET /vehicles mendukung pagination, sorting, filter q, dan menolak query asing', async () => {
@@ -180,12 +205,49 @@ describe('ParkirKu API (e2e)', () => {
     expect(badSort.body.detail).toContain('ownerName');
   });
 
-  it('PUT dan PATCH /vehicles mengubah data, serta DELETE mengembalikan 204', async () => {
+  it('ETag/If-Match: GET 304, PUT/PATCH/DELETE wajib If-Match dan versi naik', async () => {
     const created = await createVehicle().expect(201);
     const id = created.body.id;
 
+    const firstGet = await http().get(`/api/v1/vehicles/${id}`).expect(200);
+    const firstEtag = firstGet.headers.etag as string;
+
+    expect(firstEtag).toBe('"v1"');
+
+    await http()
+      .get(`/api/v1/vehicles/${id}`)
+      .set('If-None-Match', firstEtag)
+      .expect(304);
+
+    await http()
+      .get(`/api/v1/vehicles/${id}`)
+      .set('If-None-Match', '"v99"')
+      .expect(200);
+
+    const missingHeader = await http()
+      .put(`/api/v1/vehicles/${id}`)
+      .send({
+        plateNumber: 'B 1001 XY',
+        type: 'CAR',
+        ownerName: 'Tanpa If-Match',
+      })
+      .expect(428);
+    expect(missingHeader.body.type).toBe(
+      'https://api.parkirku.example/problems/precondition-required',
+    );
+
+    const staleHeader = await http()
+      .patch(`/api/v1/vehicles/${id}`)
+      .set('If-Match', '"v99"')
+      .send({ ownerName: 'Versi Lama' })
+      .expect(412);
+    expect(staleHeader.body.type).toBe(
+      'https://api.parkirku.example/problems/precondition-failed',
+    );
+
     const replaced = await http()
       .put(`/api/v1/vehicles/${id}`)
+      .set('If-Match', firstEtag)
       .send({
         plateNumber: 'B 9999 QA',
         type: 'MOTORCYCLE',
@@ -199,9 +261,11 @@ describe('ParkirKu API (e2e)', () => {
       type: 'MOTORCYCLE',
       ownerName: 'Budi Baru',
     });
+    expect(replaced.headers.etag).toBe('"v2"');
 
     const patched = await http()
       .patch(`/api/v1/vehicles/${id}`)
+      .set('If-Match', replaced.headers.etag)
       .send({ ownerName: 'Nama Patch' })
       .expect(200);
 
@@ -209,8 +273,13 @@ describe('ParkirKu API (e2e)', () => {
       plateNumber: 'B 9999 QA',
       ownerName: 'Nama Patch',
     });
+    expect(patched.headers.etag).toBe('"v3"');
 
-    await http().delete(`/api/v1/vehicles/${id}`).expect(204);
+    await http()
+      .delete(`/api/v1/vehicles/${id}`)
+      .set('If-Match', patched.headers.etag)
+      .expect(204);
+
     await http().get(`/api/v1/vehicles/${id}`).expect(404);
   });
 
@@ -292,6 +361,45 @@ describe('ParkirKu API (e2e)', () => {
       .expect(409);
   });
 
+  it('check-in ke slot OCCUPIED menghasilkan 409 tanpa menambah tiket atau mengubah slot', async () => {
+    const firstVehicle = await createVehicle().expect(201);
+    const secondVehicle = await createVehicle({
+      plateNumber: 'B 2002 AB',
+    }).expect(201);
+    const slot = await createSlot().expect(201);
+
+    await http()
+      .post('/api/v1/tickets')
+      .send({ vehicleId: firstVehicle.body.id, slotId: slot.body.id })
+      .expect(201);
+
+    const response = await http()
+      .post('/api/v1/tickets')
+      .send({ vehicleId: secondVehicle.body.id, slotId: slot.body.id })
+      .expect(409);
+
+    expect(response.body.type).toBe(
+      'https://api.parkirku.example/problems/slot-occupied',
+    );
+
+    expect(await countTickets()).toBe(1);
+
+    const rows = await dataSource.query(
+      'SELECT "slot_id", "vehicle_id", "status" FROM "tickets"',
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      slot_id: slot.body.id,
+      vehicle_id: firstVehicle.body.id,
+      status: 'ACTIVE',
+    });
+
+    const unchanged = await http()
+      .get(`/api/v1/slots/${slot.body.id}`)
+      .expect(200);
+    expect(unchanged.body.status).toBe('OCCUPIED');
+  });
+
   it('check-in ke slot dengan tipe tidak cocok menghasilkan 409 tanpa mengubah data', async () => {
     const vehicle = await createVehicle({ type: 'CAR' }).expect(201);
     const slot = await createSlot({ code: 'M-01', type: 'MOTORCYCLE' }).expect(
@@ -306,7 +414,7 @@ describe('ParkirKu API (e2e)', () => {
     expect(response.body.type).toBe(
       'https://api.parkirku.example/problems/slot-occupied',
     );
-    expect(store.tickets).toHaveLength(0);
+    expect(await countTickets()).toBe(0);
 
     const unchanged = await http().get(`/api/v1/slots/${slot.body.id}`).expect(200);
     expect(unchanged.body.status).toBe('AVAILABLE');
@@ -326,7 +434,7 @@ describe('ParkirKu API (e2e)', () => {
       .send({ vehicleId: vehicle.body.id, slotId: slot.body.id })
       .expect(409);
 
-    expect(store.tickets).toHaveLength(0);
+    expect(await countTickets()).toBe(0);
   });
 
   it('slot OCCUPIED tidak boleh diubah ke MAINTENANCE (409)', async () => {
@@ -356,6 +464,8 @@ describe('ParkirKu API (e2e)', () => {
   it('kendaraan dengan tiket ACTIVE tidak boleh dihapus (409)', async () => {
     const vehicle = await createVehicle().expect(201);
     const slot = await createSlot().expect(201);
+    const etag = (await http().get(`/api/v1/vehicles/${vehicle.body.id}`).expect(200))
+      .headers.etag as string;
 
     await http()
       .post('/api/v1/tickets')
@@ -364,6 +474,7 @@ describe('ParkirKu API (e2e)', () => {
 
     const response = await http()
       .delete(`/api/v1/vehicles/${vehicle.body.id}`)
+      .set('If-Match', etag)
       .expect(409);
 
     expect(response.body.type).toBe(
@@ -374,7 +485,10 @@ describe('ParkirKu API (e2e)', () => {
       .patch('/api/v1/tickets/1')
       .send({ status: 'COMPLETED' })
       .expect(200);
-    await http().delete(`/api/v1/vehicles/${vehicle.body.id}`).expect(204);
+    await http()
+      .delete(`/api/v1/vehicles/${vehicle.body.id}`)
+      .set('If-Match', etag)
+      .expect(204);
   });
 
   it('GET /tickets memakai cursor dan meta.nextCursor', async () => {
