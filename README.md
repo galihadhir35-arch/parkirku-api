@@ -1,6 +1,6 @@
 # ParkirKu API
 
-REST API manajemen parkir menggunakan **NestJS (TypeScript)** dan **PostgreSQL + TypeORM**. Project ini merupakan hasil **Tahap 2** (Tugas 6): penyimpanan permanen di PostgreSQL, migration, transaksi database, seed, serta **ETag/If-Match** untuk resource kendaraan.
+REST API manajemen parkir menggunakan **NestJS (TypeScript)** dan **PostgreSQL + TypeORM**. Project ini merupakan implementasi rancangan kontrak API (Tugas 1 sampai 4) berupa aplikasi REST API NestJS dengan penyimpanan permanen di PostgreSQL, migration, transaksi database, seed, serta **ETag/If-Match** untuk resource kendaraan.
 
 Kontrak API (URL, nama field, status code, dan format Problem Details) tidak berubah dari Tahap 1.
 
@@ -371,7 +371,7 @@ curl -X PATCH http://localhost:3000/api/v1/tickets/1 \
 ## Pengujian
 
 ```bash
-npm test              # 18 test (unit + e2e)
+npm test              # 21 test (unit, integration, e2e)
 npm run test:e2e      # e2e dengan Supertest
 npm run test:cov      # test + coverage
 ```
@@ -427,7 +427,7 @@ npm run start:dev
 npm run test:newman
 ```
 
-## Catatan Tahap 2
+## Catatan Implementasi
 
 - Skema dikelola sepenuhnya lewat migration; `synchronize` selalu `false`.
 - `version` pada `vehicles` tidak ditampilkan di body response, hanya dipakai untuk ETag.
